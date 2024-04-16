@@ -22,7 +22,7 @@ type Conn struct {
 
 	interrupt  context.Context
 	pending    *Stmt
-	busy       func(int) bool
+	busy       func(context.Context, int) bool
 	log        func(xErrorCode, string)
 	collation  func(*Conn, string)
 	authorizer func(AuthorizerActionCode, string, string, string, string) AuthorizerReturnCode
@@ -350,10 +350,10 @@ func (c *Conn) BusyTimeout(timeout time.Duration) error {
 	return c.error(r)
 }
 
-// BusyHandler registers a callback to handle [BUSY] errors.
+// BusyHandler registers a context-aware callback to handle [BUSY] errors.
 //
 // https://sqlite.org/c3ref/busy_handler.html
-func (c *Conn) BusyHandler(cb func(count int) (retry bool)) error {
+func (c *Conn) BusyHandler(cb func(ctx context.Context, count int) (retry bool)) error {
 	var enable uint64
 	if cb != nil {
 		enable = 1
@@ -368,7 +368,7 @@ func (c *Conn) BusyHandler(cb func(count int) (retry bool)) error {
 
 func busyCallback(ctx context.Context, mod api.Module, pDB uint32, count int32) (retry uint32) {
 	if c, ok := ctx.Value(connKey{}).(*Conn); ok && c.handle == pDB && c.busy != nil {
-		if c.busy(int(count)) {
+		if c.busy(ctx, int(count)) {
 			retry = 1
 		}
 	}
