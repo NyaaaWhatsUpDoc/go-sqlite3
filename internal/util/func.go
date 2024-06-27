@@ -2,10 +2,56 @@ package util
 
 import (
 	"context"
+	"math/bits"
+	"unsafe"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 )
+
+type Funcs struct {
+	fn    [32]api.Function
+	id    [32]*byte
+	mask  uint32
+	stack [8]uint64
+}
+
+func (f *Funcs) getfn(mod api.Module, name string) api.Function {
+	p := unsafe.StringData(name)
+	for i := range f.id {
+		if f.id[i] == p {
+			f.id[i] = nil
+			f.mask &^= uint32(1) << i
+			return f.fn[i]
+		}
+	}
+	return mod.ExportedFunction(name)
+}
+
+func (f *Funcs) putfn(name string, fn api.Function) {
+	p := unsafe.StringData(name)
+	i := bits.TrailingZeros32(^f.mask)
+	if i < 32 {
+		f.id[i] = p
+		f.fn[i] = fn
+		f.mask |= uint32(1) << i
+	} else {
+		f.id[0] = p
+		f.fn[0] = fn
+		f.mask = uint32(1)
+	}
+}
+
+func (f *Funcs) Call(ctx context.Context, mod api.Module, name string, params ...uint64) uint64 {
+	copy(f.stack[:], params)
+	fn := f.getfn(mod, name)
+	err := fn.CallWithStack(ctx, f.stack[:])
+	if err != nil {
+		panic(err)
+	}
+	f.putfn(name, fn)
+	return f.stack[0]
+}
 
 type i32 interface{ ~int32 | ~uint32 }
 type i64 interface{ ~int64 | ~uint64 }

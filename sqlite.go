@@ -4,10 +4,8 @@ package sqlite3
 import (
 	"context"
 	"math"
-	"math/bits"
 	"os"
 	"sync"
-	"unsafe"
 
 	"github.com/ncruces/go-sqlite3/internal/util"
 	"github.com/ncruces/go-sqlite3/vfs"
@@ -77,12 +75,7 @@ func compileSQLite() {
 type sqlite struct {
 	ctx   context.Context
 	mod   api.Module
-	funcs struct {
-		fn   [32]api.Function
-		id   [32]*byte
-		mask uint32
-	}
-	stack [8]uint64
+	fns   util.Funcs
 	freer uint32
 }
 
@@ -150,43 +143,8 @@ func (sqlt *sqlite) error(rc uint64, handle uint32, sql ...string) error {
 	return &err
 }
 
-func (sqlt *sqlite) getfn(name string) api.Function {
-	c := &sqlt.funcs
-	p := unsafe.StringData(name)
-	for i := range c.id {
-		if c.id[i] == p {
-			c.id[i] = nil
-			c.mask &^= uint32(1) << i
-			return c.fn[i]
-		}
-	}
-	return sqlt.mod.ExportedFunction(name)
-}
-
-func (sqlt *sqlite) putfn(name string, fn api.Function) {
-	c := &sqlt.funcs
-	p := unsafe.StringData(name)
-	i := bits.TrailingZeros32(^c.mask)
-	if i < 32 {
-		c.id[i] = p
-		c.fn[i] = fn
-		c.mask |= uint32(1) << i
-	} else {
-		c.id[0] = p
-		c.fn[0] = fn
-		c.mask = uint32(1)
-	}
-}
-
 func (sqlt *sqlite) call(name string, params ...uint64) uint64 {
-	copy(sqlt.stack[:], params)
-	fn := sqlt.getfn(name)
-	err := fn.CallWithStack(sqlt.ctx, sqlt.stack[:])
-	if err != nil {
-		panic(err)
-	}
-	sqlt.putfn(name, fn)
-	return sqlt.stack[0]
+	return sqlt.fns.Call(sqlt.ctx, sqlt.mod, name, params...)
 }
 
 func (sqlt *sqlite) free(ptr uint32) {

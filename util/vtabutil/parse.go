@@ -33,8 +33,9 @@ var (
 // Table holds metadata about a table.
 type Table struct {
 	mod api.Module
-	ptr uint32
 	sql string
+	fns util.Funcs
+	ptr uint32
 }
 
 // Parse parses a [CREATE] or [ALTER TABLE] command.
@@ -60,10 +61,10 @@ func Parse(sql string) (_ *Table, err error) {
 	if buf, ok := mod.Memory().Read(baseptr, uint32(len(sql))); ok {
 		copy(buf, sql)
 	}
-	r, err := mod.ExportedFunction("sql3parse_table").Call(ctx, baseptr, uint64(len(sql)), codeptr)
-	if err != nil {
-		return nil, err
-	}
+
+	tab := Table{mod: mod, sql: sql}
+	r := tab.fns.Call(ctx, mod, "sql3parse_table", baseptr, uint64(len(sql)), codeptr)
+	tab.ptr = uint32(r)
 
 	c, _ := mod.Memory().ReadUint32Le(codeptr)
 	switch c {
@@ -74,14 +75,7 @@ func Parse(sql string) (_ *Table, err error) {
 	case _UNSUPPORTEDSQL:
 		return nil, util.ErrorString("sql3parse: unsupported SQL")
 	}
-	if r[0] == 0 {
-		return nil, nil
-	}
-	return &Table{
-		sql: sql,
-		mod: mod,
-		ptr: uint32(r[0]),
-	}, nil
+	return &tab, nil
 }
 
 // Close closes a table handle.
@@ -93,24 +87,18 @@ func (t *Table) Close() error {
 
 // NumColumns returns the number of columns of the table.
 func (t *Table) NumColumns() int {
-	r, err := t.mod.ExportedFunction("sql3table_num_columns").Call(ctx, uint64(t.ptr))
-	if err != nil {
-		panic(err)
-	}
-	return int(int32(r[0]))
+	r := t.fns.Call(ctx, t.mod, "sql3table_num_columns", uint64(t.ptr))
+	return int(int32(r))
 }
 
 // Column returns data for the ith column of the table.
 //
 // https://sqlite.org/lang_createtable.html#column_definitions
 func (t *Table) Column(i int) Column {
-	r, err := t.mod.ExportedFunction("sql3table_get_column").Call(ctx, uint64(t.ptr), uint64(i))
-	if err != nil {
-		panic(err)
-	}
+	r := t.fns.Call(ctx, t.mod, "sql3table_get_column", uint64(t.ptr), uint64(i))
 	return Column{
 		tab: t,
-		ptr: uint32(r[0]),
+		ptr: uint32(r),
 	}
 }
 
@@ -133,9 +121,6 @@ type Column struct {
 //
 // https://sqlite.org/lang_createtable.html#column_data_types
 func (c Column) Type() string {
-	r, err := c.tab.mod.ExportedFunction("sql3column_type").Call(ctx, uint64(c.ptr))
-	if err != nil {
-		panic(err)
-	}
-	return c.tab.string(uint32(r[0]))
+	r := c.tab.fns.Call(ctx, c.tab.mod, "sql3column_type", uint64(c.ptr))
+	return c.tab.string(uint32(r))
 }
