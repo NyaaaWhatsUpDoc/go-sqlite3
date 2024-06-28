@@ -25,8 +25,25 @@ WASI_SDK="$ROOT/tools/wasi-sdk-22.0/bin"
 
 trap 'rm -f sqlite3.tmp' EXIT
 "$BINARYEN/wasm-ctor-eval" -g -c _initialize sqlite3.wasm -o sqlite3.tmp
-"$BINARYEN/wasm-opt" -g --strip --strip-producers -c -O3 \
-	sqlite3.tmp -o sqlite3.wasm \
-	--enable-simd --enable-mutable-globals --enable-multivalue \
-	--enable-bulk-memory --enable-reference-types \
-	--enable-nontrapping-float-to-int --enable-sign-ext
+"$BINARYEN/wasm-opt" --enable-simd \
+                     --enable-bulk-memory \
+                     --enable-reference-types \
+                     --enable-nontrapping-float-to-int \
+                     --enable-sign-ext \
+                     --enable-multivalue \
+                     --strip-debug \
+                     --strip-producers \
+                     --optimize-level 4 \
+                     --shrink-level 4 \
+                     --vacuum \
+                     --dae-optimizing \
+                     --flatten \
+                     --rereloop \
+                     -Oz -Oz \
+                     --inlining-optimizing \
+                     --optimize-instructions \
+                     --optimize-stack-ir \
+                     --gufa-optimizing \
+                     --dce --vacuum \
+                     --converge -Oz \
+                     sqlite3.tmp -o sqlite3.wasm
