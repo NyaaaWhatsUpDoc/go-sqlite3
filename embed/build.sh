@@ -26,8 +26,29 @@ trap 'rm -f sqlite3.tmp' EXIT
 	$(awk '{print "-Wl,--export="$0}' exports.txt)
 
 "$BINARYEN/wasm-ctor-eval" -g -c _initialize sqlite3.wasm -o sqlite3.tmp
-"$BINARYEN/wasm-opt" -g --strip --strip-producers -c -O3 \
+
+# For more information on arguments passed to
+# wasm-opt please see `wasm-opt --help` and:
+# https://github.com/WebAssembly/binaryen/wiki/Optimizer-Cookbook
+#
+# --debuginfo            : emit "names" section (useful for stacktraces)
+# --strip-dwarf          : strip DWARF debug info (leaves "names" section)
+# --strip-producers      : strip the wasm "producers" section
+# --dce                  : dead code elimination
+# --vacuum               : remove more obviously un-needed code
+# --precompute-propagate : compute compile-time evaluatable exprs and propagate through locals
+# -Oz                    : a combined set of optimization passes focused on *size*
+# -O{3,4}                : a combined set of optimization passes focused on *speed*
+# --flatten              : flattens out code, removing nesting
+# --rereloop             : re-optimize control flow using relooper algorithm
+"$BINARYEN/wasm-opt" --debuginfo --strip-dwarf --strip-producers \
 	sqlite3.tmp -o sqlite3.wasm \
 	--enable-simd --enable-mutable-globals --enable-multivalue \
 	--enable-bulk-memory --enable-reference-types \
-	--enable-nontrapping-float-to-int --enable-sign-ext
+	--enable-nontrapping-float-to-int --enable-sign-ext \
+	--dce --vacuum \
+	--precompute-propagate \
+	--flatten --rereloop -Oz -Oz \
+	--flatten -O3 \
+	--flatten -O3 \
+	-O4 -O4
